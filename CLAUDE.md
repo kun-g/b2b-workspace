@@ -507,6 +507,100 @@ try {
 - [addressParser 工具 - 后端](b2b-rental-backend/src/utils/addressParser.ts)
 - [addressApi - 前端](lease-shelf-flow-01487/src/services/api/addressApi.ts)
 
+#### 授信管理功能
+
+**1. 后端接口（Payload CMS）**
+
+**API端点：**
+
+| 功能 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| 获取商户授信列表 | GET | `/api/user-merchant-credit?where[merchant][equals]={merchantId}` | 商户查看授权给用户的授信列表 |
+| 获取用户授信列表 | GET | `/api/user-merchant-credit?where[user][equals]={userId}&where[status][equals]=active` | 用户查看自己的授信列表 |
+| 创建授信 | POST | `/api/user-merchant-credit` | 商户为用户创建授信 |
+| 更新授信 | PATCH | `/api/user-merchant-credit/{id}` | 更新授信额度或状态 |
+| 删除授信 | DELETE | `/api/user-merchant-credit/{id}` | 删除授信 |
+
+**数据模型：**
+```typescript
+{
+  id: string
+  user: number                    // User ID
+  merchant: number                // Merchant ID
+  credit_limit: number            // 授信额度
+  used_credit: number             // 已用额度（自动计算）
+  available_credit: number        // 可用额度（自动计算）
+  status: 'active' | 'disabled' | 'frozen'  // 授信状态
+  credit_history: Array<{        // 额度调整历史（自动记录）
+    date: string
+    old_limit: number
+    new_limit: number
+    reason: string
+    operator: number
+  }>
+  createdAt: string
+  updatedAt: string
+}
+```
+
+**后端特性：**
+- ✅ **自动计算额度**：`available_credit = credit_limit - used_credit`
+- ✅ **授信冻结/释放**：订单创建时冻结，完成/取消时释放
+- ✅ **历史记录**：每次额度调整自动记录到 `credit_history` 数组
+- ✅ **权限控制**：
+  - 商户只能管理自己的授信
+  - 用户只能查看自己的授信
+  - 禁用/冻结的授信无法用于下单
+
+**2. 前端实现**
+
+**商户端页面**：
+- **位置**: `lease-shelf-flow-01487/src/pages/merchant/CreditManagement.tsx`
+- **路由**: `/merchant/credit`
+- **功能**：
+  - ✅ 查看授信列表（用户、额度、已用、可用、状态）
+  - ✅ 添加新授信（选择用户、输入额度）
+  - ✅ 更新授信额度（直接编辑输入框，失焦保存）
+  - ✅ 切换授信状态（开关：active/disabled）
+  - ✅ 删除授信
+  - ✅ 显示已用额度进度条（>80% 红色警告）
+  - ✅ 查看授信历史记录（对话框展示调整历史）
+
+**用户端页面**：
+- **位置**: `lease-shelf-flow-01487/src/pages/customer/MyCredit.tsx`
+- **路由**: `/customer/my-credit`
+- **功能**：
+  - ✅ 查看自己的授信列表
+  - ✅ 显示每个商户的授信额度和可用额度
+
+**API服务层**：
+- **位置**: `lease-shelf-flow-01487/src/services/creditService.ts`
+- **类型定义**: `lease-shelf-flow-01487/src/services/api/creditApi.ts`
+
+**3. 接口对比分析**
+
+✅ **已完全对齐**：
+- 数据模型：前后端使用相同的字段结构
+- 状态字段：统一使用 `status` ('active' | 'disabled' | 'frozen')
+- API 调用：前端正确调用后端 REST API
+- 权限控制：商户和用户权限正确分离
+
+**4. 测试覆盖**
+
+✅ **后端测试**：
+- 单元测试：`creditUtils.test.ts` (5/5 通过) - 测试冻结/释放逻辑
+- 集成测试：`Orders.test.ts` (4/4 通过) - 测试订单完成/取消时释放授信
+- E2E 测试：`orders-api.e2e.spec.ts` - 测试授信额度不足阻止下单
+
+✅ **前端测试**：
+- E2E 测试：`credit-scenarios.spec.ts` - 测试客户授信场景（6种角色）
+- E2E 测试：`merchant-credit-management.spec.ts` - 测试商户授信管理流程
+
+**相关文档：**
+- [UserMerchantCredit Collection](b2b-rental-backend/src/collections/UserMerchantCredit.ts)
+- [creditUtils 工具](b2b-rental-backend/src/utils/creditUtils.ts)
+- [OpenSpec 变更记录](openspec/changes/enhance-credit-management/)
+
 ### 待对接接口
 
 #### 需要实现的接口
