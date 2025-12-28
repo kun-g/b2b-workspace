@@ -547,6 +547,7 @@ try {
 - ✅ **自动计算额度**：`available_credit = credit_limit - used_credit`
 - ✅ **授信冻结/释放**：订单创建时冻结，完成/取消时释放
 - ✅ **历史记录**：每次额度调整自动记录到 `credit_history` 数组
+- ✅ **用户角色验证**：创建授信时验证 user 必须是 `customer` 角色，防止为其他角色创建授信
 - ✅ **权限控制**：
   - 商户只能管理自己的授信
   - 用户只能查看自己的授信
@@ -559,7 +560,7 @@ try {
 - **路由**: `/merchant/credit`
 - **功能**：
   - ✅ 查看授信列表（用户、额度、已用、可用、状态）
-  - ✅ 添加新授信（选择用户、输入额度）
+  - ✅ 添加新授信（**输入 customer 的 User ID**、输入额度）
   - ✅ 更新授信额度（直接编辑输入框，失焦保存）
   - ✅ 切换授信状态（开关：active/disabled）
   - ✅ 删除授信
@@ -600,6 +601,152 @@ try {
 - [UserMerchantCredit Collection](b2b-rental-backend/src/collections/UserMerchantCredit.ts)
 - [creditUtils 工具](b2b-rental-backend/src/utils/creditUtils.ts)
 - [OpenSpec 变更记录](openspec/changes/enhance-credit-management/)
+
+#### 归还地址管理功能
+
+**1. 后端实现（Payload CMS）**
+
+**API端点：**
+
+| 功能 | 方法 | 路径 | 说明 |
+|------|------|------|------|
+| 获取归还信息列表 | GET | `/api/return-info` | 商户/平台管理员查看归还信息 |
+| 创建归还信息 | POST | `/api/return-info` | 商户管理员创建归还地址 |
+| 更新归还信息 | PATCH | `/api/return-info/{id}` | 更新归还地址 |
+| 删除归还信息 | DELETE | `/api/return-info/{id}` | 删除归还地址 |
+
+**数据模型：**
+```typescript
+{
+  id: string
+  merchant: number                  // Merchant ID
+  return_contact_name: string       // 归还联系人
+  return_contact_phone: string      // 联系电话
+  return_address: {                // 归还地址
+    province: string
+    city: string
+    district: string
+    address: string
+    postal_code: string
+  }
+  status: 'active' | 'disabled'    // 状态
+  is_default: boolean               // 是否默认地址
+  notes: string                     // 备注
+}
+```
+
+**后端特性：**
+- ✅ **自动设置默认地址**：每个商户只能有一个默认归还地址，设置新默认时自动取消其他默认
+- ✅ **订单自动填充**：创建订单时自动从商户默认归还信息中填充归还地址
+- ✅ **商户可修改订单归还地址**：在订单状态为 NEW/PAID/TO_SHIP/SHIPPED/IN_RENT 时，商户可以修改订单的归还地址
+- ✅ **归还中后锁定**：订单进入 RETURNING 状态后，归还地址不可修改
+- ✅ **一键复制功能**：订单详情页面提供格式化的归还地址，方便用户复制到快递单
+
+**订单中的归还地址字段：**
+- `return_address` (group): 订单的归还地址
+  - 在 RETURNING 之前可编辑（通过 `readOnly` 条件控制）
+  - 在 RETURNING 及之后只读
+- `return_address_display` (UI field): 显示格式化的归还地址，提供一键复制功能
+
+**2. 用户体验增强**
+
+**商户端功能**：
+- 在订单详情页面可以看到"归还地址（便于复制）"卡片
+- 点击"复制"按钮一键复制完整归还地址信息
+- 复制格式示例：
+  ```
+  收件人：张三
+  电话：13800138000
+  地址：广东省深圳市南山区科技园南路15号
+  邮编：518000
+  ```
+
+**用户端功能**：
+- 在订单详情中可以看到归还地址
+- 准备归还设备时，可以直接复制归还地址到快递单
+
+**3. 权限控制**
+
+- **商户管理员**：
+  - 可以创建/更新/删除自己商户的归还信息
+  - 可以在订单 RETURNING 之前修改订单归还地址
+- **平台管理员**：
+  - 可以查看/修改/删除所有归还信息
+- **普通用户**：
+  - 可以查看归还信息（用于下单）
+  - 不能修改归还信息
+
+**相关文件（后端）：**
+- [ReturnInfo Collection](b2b-rental-backend/src/collections/ReturnInfo.ts)
+- [Orders Collection - return_address 字段](b2b-rental-backend/src/collections/Orders.ts:352-439)
+- [ReturnAddressDisplay 组件](b2b-rental-backend/src/components/ReturnAddressDisplay.tsx)
+
+**相关文件（前端）：**
+- [归还地址管理页面](lease-shelf-flow-01487/src/pages/merchant/ReturnAddressManagement.tsx)
+- [ReturnAddressSelector 组件](lease-shelf-flow-01487/src/components/ReturnAddressSelector.tsx)
+- [returnInfoApi](lease-shelf-flow-01487/src/services/api/returnInfoApi.ts)
+
+**4. 前端实现**
+
+**归还地址管理页面**（`/merchant/return-address`）：
+- ✅ 查看商户的所有归还地址
+- ✅ 添加新归还地址（联系人、电话、完整地址、邮编、备注）
+- ✅ 编辑现有归还地址
+- ✅ 删除归还地址
+- ✅ 设置默认地址（每个商户只能有一个默认地址）
+- ✅ 启用/禁用地址
+
+**订单中的归还地址选择**（`ReturnAddressSelector` 组件）：
+- ✅ **从列表选择**：显示商户所有启用的归还地址，支持单选
+- ✅ **输入新地址**：手动输入新的归还地址
+- ✅ **智能地址解析**：粘贴完整地址后一键解析，自动填充省市区和详细地址
+- ✅ **可选保存**：勾选"保存到归还地址列表"，可将新地址保存（方便下次使用）
+- ✅ **立即保存**：勾选保存后，点击"立即保存"按钮将地址保存到列表
+- ✅ **状态限制**：订单进入 RETURNING 状态后，组件自动变为只读模式
+
+**订单页面集成**（`MyOrders.tsx` - 商户端）：
+- ✅ **编辑按钮显示**：在以下订单状态显示"设置归还地址"按钮：
+  - PAID（已支付）
+  - TO_SHIP（待发货）
+  - SHIPPED（已发货）
+  - IN_RENT（租赁中）
+- ✅ **编辑对话框**：点击按钮打开对话框，集成 `ReturnAddressSelector` 组件
+- ✅ **自动加载**：对话框打开时自动加载当前订单的归还地址
+- ✅ **保存更新**：通过 `orderApi.updateOrderStatus` 更新订单归还地址
+- ✅ **验证逻辑**：必填字段：联系人、电话、省份、城市、详细地址
+
+**订单卡片显示**（`OrderCard.tsx`）：
+- ✅ **显示优先级**：
+  1. 优先显示 `order.return_address`（订单设置的归还地址）
+  2. 降级显示 `sku.return_address`（SKU 默认归还地址）
+- ✅ **完整信息展示**：联系人、电话、省市区、详细地址、邮编
+- ✅ **悬浮卡片**：使用 HoverCard 展示完整地址
+- ✅ **一键复制**：点击复制完整地址信息
+
+**使用场景示例**：
+
+1. **商户首次使用**：
+   - 进入"归还地址管理"页面
+   - 添加第一个归还地址，勾选"设为默认"
+   - 以后创建的订单会自动使用该默认地址
+
+2. **订单修改归还地址（从列表选择）**：
+   - 在订单详情中，点击"从列表选择"
+   - 选择其他已保存的归还地址
+   - 订单归还地址立即更新
+
+3. **订单修改归还地址（使用智能解析）**：
+   - 在订单详情中，点击"输入新地址"
+   - 在"智能解析地址"区域粘贴完整地址，如：`广东省深圳市南山区科技园南路15号`
+   - 点击"解析"按钮，系统自动填充省市区和详细地址
+   - 手动输入联系人和电话
+   - 可选勾选"保存到归还地址列表"
+
+4. **订单修改归还地址（手动输入）**：
+   - 在订单详情中，点击"输入新地址"
+   - 手动填写所有字段（联系人、电话、省市区、详细地址、邮编）
+   - **不勾选"保存"**：该地址仅用于当前订单
+   - **勾选"保存"**：点击"立即保存"后，地址同时保存到列表和应用到订单
 
 ### 待对接接口
 
